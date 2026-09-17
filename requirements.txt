@@ -1,5 +1,4 @@
 fastapi
 uvicorn
 ezdxf
-requests
-pydantic
+python-multipart
