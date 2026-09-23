@@ -86,8 +86,6 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                         for point in pts:
                             atualizar_limites(point[0], point[1])
 
-                # Cálculo de contornos fechados: 
-                # Cada círculo conta como 1. Cada oblongo é composto tipicamente por 2 arcos, logo arcos_count / 2 dá o total de oblongos.
                 contornos_fechados = circulos_count + (arcos_count // 2)
 
                 largura = round(max_x - min_x, 2) if min_x != float("inf") else 0.0
@@ -109,8 +107,8 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                     detail=f"Erro ao processar o arquivo {file.filename}: {str(e)}",
                 )
 
-  return {
-      "arquivos": resultados,
-      "comprimento_geral_total": round(comprimento_geral_total, 2),
-      "unit": "unidades",
-  }
+    return {
+        "arquivos": resultados,
+        "comprimento_geral_total": round(comprimento_geral_total, 2),
+        "unit": "unidades",
+    }
