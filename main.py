@@ -1,4 +1,3 @@
-
 from typing import List
 import os
 import tempfile
@@ -34,7 +33,6 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                 circulos_count = 0
                 arcos_count = 0
                 
-                # Dicionário para acumular comprimento por cor
                 comprimentos_por_cor = {}
 
                 min_x, min_y = float("inf"), float("inf")
@@ -48,13 +46,17 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                     if y > max_y: max_y = y
 
                 def adicionar_comprimento_cor(cor_idx, length):
-                    # Se cor for 256 (ByLayer), podemos agrupar ou ler da camada se necessário
                     cor_nome = f"Cor {cor_idx}" if cor_idx != 256 else "Por Camada (ByLayer)"
                     comprimentos_por_cor[cor_nome] = comprimentos_por_cor.get(cor_nome, 0.0) + length
 
                 for entity in msp:
                     etype = entity.dxftype()
-                    cor_idx = entity.get_dxf_attrib("color", 256)
+                    
+                    # Forma segura de obter a cor no ezdxf
+                    try:
+                        cor_idx = entity.dxf.get('color', 256)
+                    except Exception:
+                        cor_idx = 256
                     
                     if etype == "LINE":
                         start = entity.dxf.start
@@ -108,7 +110,6 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                 comprimento_formatado = round(total_length, 2)
                 comprimento_geral_total += comprimento_formatado
 
-                # Formata o dicionário de cores para valores arredondados
                 cores_formatadas = {k: round(v, 2) for k, v in comprimentos_por_cor.items()}
 
                 resultados.append({
@@ -125,8 +126,8 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                     detail=f"Erro ao processar o arquivo {file.filename}: {str(e)}",
                 )
 
-  return {
-      "arquivos": resultados,
-      "comprimento_geral_total": round(comprimento_geral_total, 2),
-      "unit": "unidades",
-  }
+    return {
+        "arquivos": resultados,
+        "comprimento_geral_total": round(comprimento_geral_total, 2),
+        "unit": "unidades",
+    }
