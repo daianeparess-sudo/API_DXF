@@ -1,3 +1,4 @@
+
 from typing import List
 import os
 import tempfile
@@ -32,6 +33,9 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                 total_length = 0.0
                 circulos_count = 0
                 arcos_count = 0
+                
+                # Dicionário para acumular comprimento por cor
+                comprimentos_por_cor = {}
 
                 min_x, min_y = float("inf"), float("inf")
                 max_x, max_y = float("-inf"), float("-inf")
@@ -43,14 +47,21 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                     if y < min_y: min_y = y
                     if y > max_y: max_y = y
 
+                def adicionar_comprimento_cor(cor_idx, length):
+                    # Se cor for 256 (ByLayer), podemos agrupar ou ler da camada se necessário
+                    cor_nome = f"Cor {cor_idx}" if cor_idx != 256 else "Por Camada (ByLayer)"
+                    comprimentos_por_cor[cor_nome] = comprimentos_por_cor.get(cor_nome, 0.0) + length
+
                 for entity in msp:
                     etype = entity.dxftype()
+                    cor_idx = entity.get_dxf_attrib("color", 256)
                     
                     if etype == "LINE":
                         start = entity.dxf.start
                         end = entity.dxf.end
                         length = math.sqrt((end.x - start.x)**2 + (end.y - start.y)**2)
                         total_length += length
+                        adicionar_comprimento_cor(cor_idx, length)
                         atualizar_limites(start.x, start.y)
                         atualizar_limites(end.x, end.y)
                         
@@ -59,6 +70,7 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                         radius = entity.dxf.radius
                         length = 2 * math.pi * radius
                         total_length += length
+                        adicionar_comprimento_cor(cor_idx, length)
                         atualizar_limites(center.x - radius, center.y - radius)
                         atualizar_limites(center.x + radius, center.y + radius)
                         circulos_count += 1
@@ -72,6 +84,7 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                             end_angle += 360.0
                         length = radius * math.radians(end_angle - start_angle)
                         total_length += length
+                        adicionar_comprimento_cor(cor_idx, length)
                         atualizar_limites(center.x - radius, center.y - radius)
                         atualizar_limites(center.x + radius, center.y + radius)
                         arcos_count += 1
@@ -79,6 +92,7 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                     elif etype in ("LWPOLYLINE", "POLYLINE"):
                         length = entity.length()
                         total_length += length
+                        adicionar_comprimento_cor(cor_idx, length)
                         pts = list(entity.get_points())
                         is_closed = entity.closed
                         if is_closed or (len(pts) > 2 and abs(pts[0][0] - pts[-1][0]) < 1e-3 and abs(pts[0][1] - pts[-1][1]) < 1e-3):
@@ -94,12 +108,16 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                 comprimento_formatado = round(total_length, 2)
                 comprimento_geral_total += comprimento_formatado
 
+                # Formata o dicionário de cores para valores arredondados
+                cores_formatadas = {k: round(v, 2) for k, v in comprimentos_por_cor.items()}
+
                 resultados.append({
                     "filename": file.filename,
                     "total_length": comprimento_formatado,
                     "largura": largura,
                     "altura": altura,
-                    "contornos_fechados": max(1, contornos_fechados)
+                    "contornos_fechados": max(1, contornos_fechados),
+                    "comprimentos_por_cor": cores_formatadas
                 })
             except Exception as e:
                 raise HTTPException(
@@ -107,8 +125,8 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
                     detail=f"Erro ao processar o arquivo {file.filename}: {str(e)}",
                 )
 
-    return {
-        "arquivos": resultados,
-        "comprimento_geral_total": round(comprimento_geral_total, 2),
-        "unit": "unidades",
-    }
+  return {
+      "arquivos": resultados,
+      "comprimento_geral_total": round(comprimento_geral_total, 2),
+      "unit": "unidades",
+  }
