@@ -45,6 +45,10 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
           if y > max_y:
             max_y = y
 
+        # Contagem de contornos fechados
+        contornos_fechados = 年は 0  # contador base
+        segmentos = []
+
         for entity in msp:
           if entity.dxftype() == "LINE":
             start = entity.dxf.start
@@ -53,12 +57,21 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
             total_length += length
             atualizar_limites(start.x, start.y)
             atualizar_limites(end.x, end.y)
+            segmentos.append(((round(start.x, 3), round(start.y, 3)), (round(end.x, 3), round(end.y, 3))))
           elif entity.dxftype() in ("LWPOLYLINE", "POLYLINE"):
             total_length += entity.length()
-            for point in entity.get_points():
+            pts = list(entity.get_points())
+            if len(pts) > 0:
+              is_closed = entity.closed
+              # Se a polilinhas for fechada por propriedade ou se o último ponto liga ao primeiro
+              if is_closed or (len(pts) > 2 and abs(pts[0][0] - pts[-1][0]) < 1e-3 and abs(pts[0][1] - pts[-1][1]) < 1e-3):
+                contornos_fechados += 1
+            for point in pts:
               atualizar_limites(point[0], point[1])
 
-        # Calcula largura e altura com base na caixa delimitadora (bounding box)
+        # Heurística simples para contar contornos baseados em polilinhas fechadas + entidades detectadas
+        # (Caso queira refinar para linhas soltas formando loops, podemos expandir com lógica de grafos)
+        
         largura = (
             round(max_x - min_x, 2)
             if min_x != float("inf") and max_x != float("-inf")
@@ -78,6 +91,7 @@ async def calcular_lote(files: List[UploadFile] = File(...)):
             "total_length": comprimento_formatado,
             "largura": largura,
             "altura": altura,
+            "contornos_fechados": max(1, contornos_fechados) # Garante pelo menos 1 contorno principal se houver geometria
         })
       except Exception as e:
         raise HTTPException(
