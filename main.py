@@ -1,133 +1,83 @@
-from typing import List
-import os
-import tempfile
-import math
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from flask import Flask, request, jsonify
 import ezdxf
+import ezdxf.recover
+import io
+import os
+from ezdxf.addons.drawing import RenderContext, Frontend
+from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+import matplotlib.pyplot as plt
 
-app = FastAPI()
+app = Flask(__name__)
 
-@app.post("/calcular-lote")
-async def calcular_lote(files: List[UploadFile] = File(...)):
-    resultados = []
-    comprimento_geral_total = 0.0
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for file in files:
-            filename = file.filename.lower()
-            if not filename.endswith(".dxf"):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"O arquivo {file.filename} não é um .dxf válido.",
-                )
-
-            file_path = os.path.join(temp_dir, file.filename)
-            contents = await file.read()
-            with open(file_path, "wb") as f:
-                f.write(contents)
-
-            try:
-                doc = ezdxf.readfile(file_path)
-                msp = doc.modelspace()
-                total_length = 0.0
-                circulos_count = 0
-                arcos_count = 0
-                
-                comprimentos_por_cor = {}
-
-                min_x, min_y = float("inf"), float("inf")
-                max_x, max_y = float("-inf"), float("-inf")
-
-                def atualizar_limites(x, y):
-                    nonlocal min_x, min_y, max_x, max_y
-                    if x < min_x: min_x = x
-                    if x > max_x: max_x = x
-                    if y < min_y: min_y = y
-                    if y > max_y: max_y = y
-
-                def adicionar_comprimento_cor(cor_idx, length):
-                    cor_nome = f"Cor {cor_idx}" if cor_idx != 256 else "Por Camada (ByLayer)"
-                    comprimentos_por_cor[cor_nome] = comprimentos_por_cor.get(cor_nome, 0.0) + length
-
-                for entity in msp:
-                    etype = entity.dxftype()
+@app.route('/process-dxf', methods=['POST'])
+def process_dxf():
+    if 'file' not in request.files:
+        return jsonify({"error": "Nenhum arquivo enviado"}), 400
+    
+    file = request.files['file']
+    filename = file.filename
+    
+    # Caminho temporário para salvar o DXF recebido
+    temp_path = os.path.join('/tmp', filename) if os.path.exists('/tmp') else filename
+    file.save(temp_path)
+    
+    try:
+        # Carrega o DXF de forma segura
+        doc, auditor = ezdxf.recover.readfile(temp_path)
+        msp = doc.modelspace()
+        
+        # 1. Cálculo de Largura e Altura (Bounding Box)
+        min_x, min_y = float('inf'), float('inf')
+        max_x, max_y = float('-inf'), float('-inf')
+        
+        for entity in msp:
+            if entity.dxftype() in ('LINE', 'LWPOLYLINE', 'CIRCLE', 'ARC'):
+                try:
+                    box = entity.bounding_box()
+                    min_x = min(min_x, box.extmin.x)
+                    min_y = min(min_y, box.extmin.y)
+                    max_x = max(max_x, box.extmax.x)
+                    max_y = max(max_y, box.extmax.y)
+                except:
+                    pass
                     
-                    # Forma segura de obter a cor no ezdxf
-                    try:
-                        cor_idx = entity.dxf.get('color', 256)
-                    except Exception:
-                        cor_idx = 256
-                    
-                    if etype == "LINE":
-                        start = entity.dxf.start
-                        end = entity.dxf.end
-                        length = math.sqrt((end.x - start.x)**2 + (end.y - start.y)**2)
-                        total_length += length
-                        adicionar_comprimento_cor(cor_idx, length)
-                        atualizar_limites(start.x, start.y)
-                        atualizar_limites(end.x, end.y)
-                        
-                    elif etype == "CIRCLE":
-                        center = entity.dxf.center
-                        radius = entity.dxf.radius
-                        length = 2 * math.pi * radius
-                        total_length += length
-                        adicionar_comprimento_cor(cor_idx, length)
-                        atualizar_limites(center.x - radius, center.y - radius)
-                        atualizar_limites(center.x + radius, center.y + radius)
-                        circulos_count += 1
-                        
-                    elif etype == "ARC":
-                        center = entity.dxf.center
-                        radius = entity.dxf.radius
-                        start_angle = entity.dxf.start_angle
-                        end_angle = entity.dxf.end_angle
-                        if end_angle < start_angle:
-                            end_angle += 360.0
-                        length = radius * math.radians(end_angle - start_angle)
-                        total_length += length
-                        adicionar_comprimento_cor(cor_idx, length)
-                        atualizar_limites(center.x - radius, center.y - radius)
-                        atualizar_limites(center.x + radius, center.y + radius)
-                        arcos_count += 1
-                        
-                    elif etype in ("LWPOLYLINE", "POLYLINE"):
-                        length = entity.length()
-                        total_length += length
-                        adicionar_comprimento_cor(cor_idx, length)
-                        pts = list(entity.get_points())
-                        is_closed = entity.closed
-                        if is_closed or (len(pts) > 2 and abs(pts[0][0] - pts[-1][0]) < 1e-3 and abs(pts[0][1] - pts[-1][1]) < 1e-3):
-                            circulos_count += 1
-                        for point in pts:
-                            atualizar_limites(point[0], point[1])
+        width = round(max_x - min_x, 2) if max_x > min_x else 0.0
+        height = round(max_y - min_y, 2) if max_y > min_y else 0.0
 
-                contornos_fechados = circulos_count + (arcos_count // 2)
+        # 2. Renderização do Desenho Real em formato SVG usando Matplotlib + ezdxf
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ctx = RenderContext(doc)
+        out = MatplotlibBackend(ax)
+        Frontend(ctx, out).draw_layout(msp, finalize=True)
+        
+        ax.axis('off')
+        plt.tight_layout()
+        
+        svg_io = io.BytesIO()
+        plt.savefig(svg_io, format='svg', bbox_inches='tight', transparent=True)
+        plt.close(fig)
+        
+        svg_io.seek(0)
+        svg_string = svg_io.getvalue().decode('utf-8')
+        
+        # Remove o arquivo temporário
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        
+        # 3. Retorna o JSON direto no nível raiz para facilitar a leitura no Bubble
+        return jsonify({
+            "filename": filename,
+            "width": width,
+            "height": height,
+            "cut_length": 0.0,
+            "piercings": 0,
+            "dxf_svg": svg_string
+        })
 
-                largura = round(max_x - min_x, 2) if min_x != float("inf") else 0.0
-                altura = round(max_y - min_y, 2) if min_y != float("inf") else 0.0
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return jsonify({"error": str(e)}), 500
 
-                comprimento_formatado = round(total_length, 2)
-                comprimento_geral_total += comprimento_formatado
-
-                cores_formatadas = {k: round(v, 2) for k, v in comprimentos_por_cor.items()}
-
-                resultados.append({
-                    "filename": file.filename,
-                    "total_length": comprimento_formatado,
-                    "largura": largura,
-                    "altura": altura,
-                    "contornos_fechados": max(1, contornos_fechados),
-                    "comprimentos_por_cor": cores_formatadas
-                })
-            except Exception as e:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Erro ao processar o arquivo {file.filename}: {str(e)}",
-                )
-
-    return {
-        "arquivos": resultados,
-        "comprimento_geral_total": round(comprimento_geral_total, 2),
-        "unit": "unidades",
-    }
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
