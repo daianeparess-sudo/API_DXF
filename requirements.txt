@@ -1,4 +1,4 @@
-fastapi
-uvicorn
+flask
 ezdxf
-python-multipart
+matplotlib
+gunicorn
