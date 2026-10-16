@@ -1,83 +1,61 @@
+import os
+import io
+import base64
 from flask import Flask, request, jsonify
 import ezdxf
-import ezdxf.recover
-import io
-import os
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
-@app.route('/process-dxf', methods=['POST'])
-def process_dxf():
-    if 'file' not in request.files:
-        return jsonify({"error": "Nenhum arquivo enviado"}), 400
-    
-    file = request.files['file']
-    filename = file.filename
-    
-    # Caminho temporário para salvar o DXF recebido
-    temp_path = os.path.join('/tmp', filename) if os.path.exists('/tmp') else filename
-    file.save(temp_path)
-    
+@app.route('/calcular-lote', methods=['POST'])
+def calcular_lote():
     try:
-        # Carrega o DXF de forma segura
-        doc, auditor = ezdxf.recover.readfile(temp_path)
-        msp = doc.modelspace()
+        # Verifica se o arquivo foi enviado na requisição (espera o parâmetro 'file')
+        if 'file' not in request.files:
+            return jsonify({'error': 'Nenhum arquivo enviado no parâmetro "file"'}), 400
         
-        # 1. Cálculo de Largura e Altura (Bounding Box)
-        min_x, min_y = float('inf'), float('inf')
-        max_x, max_y = float('-inf'), float('-inf')
-        
-        for entity in msp:
-            if entity.dxftype() in ('LINE', 'LWPOLYLINE', 'CIRCLE', 'ARC'):
-                try:
-                    box = entity.bounding_box()
-                    min_x = min(min_x, box.extmin.x)
-                    min_y = min(min_y, box.extmin.y)
-                    max_x = max(max_x, box.extmax.x)
-                    max_y = max(max_y, box.extmax.y)
-                except:
-                    pass
-                    
-        width = round(max_x - min_x, 2) if max_x > min_x else 0.0
-        height = round(max_y - min_y, 2) if max_y > min_y else 0.0
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'Nome do arquivo vazio'}), 400
 
-        # 2. Renderização do Desenho Real em formato SVG usando Matplotlib + ezdxf
-        fig, ax = plt.subplots(figsize=(6, 6))
+        # Lê o conteúdo do DXF enviado
+        dxf_bytes = file.read()
+        
+        # Carrega o DXF usando ezdxf a partir dos bytes
+        doc = ezdxf.read(io.BytesIO(dxf_bytes))
+        msp = doc.modelspace()
+
+        # Configuração para renderizar o SVG / Matplotlib da geometria planificada
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_axes([0, 0, 1, 1])
         ctx = RenderContext(doc)
+        
+        # Desenha a entidade no backend do matplotlib
         out = MatplotlibBackend(ax)
         Frontend(ctx, out).draw_layout(msp, finalize=True)
-        
-        ax.axis('off')
-        plt.tight_layout()
-        
+
+        # Converte a figura gerada para SVG em memória
         svg_io = io.BytesIO()
-        plt.savefig(svg_io, format='svg', bbox_inches='tight', transparent=True)
+        fig.savefig(svg_io, format='svg', bbox_inches='tight')
         plt.close(fig)
         
         svg_io.seek(0)
-        svg_string = svg_io.getvalue().decode('utf-8')
-        
-        # Remove o arquivo temporário
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        
-        # 3. Retorna o JSON direto no nível raiz para facilitar a leitura no Bubble
-        return jsonify({
-            "filename": filename,
-            "width": width,
-            "height": height,
-            "cut_length": 0.0,
-            "piercings": 0,
-            "dxf_svg": svg_string
-        })
+        dxf_svg_content = svg_io.getvalue().decode('utf-8')
+
+        # Exemplo de resposta JSON contendo o dxf_svg e os dados operacionais
+        response_data = {
+            'dxf_svg': dxf_svg_content,
+            'status': 'sucesso',
+            'mensagem': 'DXF processado e planificado com sucesso'
+        }
+
+        return jsonify(response_data), 200
 
     except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
