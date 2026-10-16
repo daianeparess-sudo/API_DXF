@@ -21,35 +21,40 @@ def calcular_lote():
 
         file_content = file.read()
         
-        # Tenta descodificar de forma inteligente para lidar com o formato enviado pelo Bubble
         doc = None
-        last_error = None
+        erro_detalhado = ""
 
-        # Tentativa 1: Leitura direta em bytes
+        # Tentativa 1: Leitura direta se forem bytes válidos
         try:
             doc = ezdxf.read(io.BytesIO(file_content))
         except Exception as e1:
-            last_error = str(e1)
+            erro_detalhado += f" [B1: {str(e1)}] "
 
-        # Tentativa 2: Tratando como texto utf-8 (caso o Bubble envie string pura)
+        # Tentativa 2: Decodificação Base64 (caso o Bubble envie o ficheiro codificado)
         if doc is None:
             try:
-                text_content = file_content.decode('utf-8', errors='ignore')
-                doc = ezdxf.read(io.StringIO(text_content))
+                decoded_bytes = base64.b64decode(file_content)
+                doc = ezdxf.read(io.BytesIO(decoded_bytes))
             except Exception as e2:
-                last_error = f"Bytes: {last_error} | Text: {str(e2)}"
+                erro_detalhado += f" [B64: {str(e2)}] "
 
-        # Tentativa 3: Tratando como latin-1 (para carateres especiais ou acentuação)
+        # Tentativa 3: Conversão para texto limpo (UTF-8 / Latin-1)
         if doc is None:
-            try:
-                text_content = file_content.decode('latin-1', errors='ignore')
-                doc = ezdxf.read(io.StringIO(text_content))
-            except Exception as e3:
-                return jsonify({'error': f'Falha ao ler DXF: {last_error} | Latin1: {str(e3)}'}), 400
+            for encoding in ['utf-8', 'latin-1', 'cp1252']:
+                try:
+                    text_content = file_content.decode(encoding, errors='ignore')
+                    # Limpa eventuais quebras de linha corrompidas pelo transporte HTTP
+                    doc = ezdxf.read(io.StringIO(text_content))
+                    break
+                except Exception as e3:
+                    erro_detalhado += f" [{encoding}: {str(e3)}] "
+
+        if doc is None:
+            return jsonify({'error': f'Impossível ler DXF. Detalhes: {erro_detalhado}'}), 400
 
         msp = doc.modelspace()
 
-        # Renderiza a geometria planificada para SVG usando matplotlib
+        # Renderização da vista planificada para SVG utilizando o matplotlib
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_axes([0, 0, 1, 1])
         ctx = RenderContext(doc)
