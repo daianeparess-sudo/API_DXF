@@ -21,13 +21,31 @@ def calcular_lote():
 
         file_content = file.read()
         
-        # Tenta ler como bytes (padrão)
+        # Tenta descodificar de forma inteligente para lidar com o formato enviado pelo Bubble
+        doc = None
+        last_error = None
+
+        # Tentativa 1: Leitura direta em bytes
         try:
             doc = ezdxf.read(io.BytesIO(file_content))
-        except Exception:
-            # Se falhar, converte para texto e lê com io.StringIO usando ezdxf.read()
-            text_content = file_content.decode('utf-8', errors='ignore')
-            doc = ezdxf.read(io.StringIO(text_content))
+        except Exception as e1:
+            last_error = str(e1)
+
+        # Tentativa 2: Tratando como texto utf-8 (caso o Bubble envie string pura)
+        if doc is None:
+            try:
+                text_content = file_content.decode('utf-8', errors='ignore')
+                doc = ezdxf.read(io.StringIO(text_content))
+            except Exception as e2:
+                last_error = f"Bytes: {last_error} | Text: {str(e2)}"
+
+        # Tentativa 3: Tratando como latin-1 (para carateres especiais ou acentuação)
+        if doc is None:
+            try:
+                text_content = file_content.decode('latin-1', errors='ignore')
+                doc = ezdxf.read(io.StringIO(text_content))
+            except Exception as e3:
+                return jsonify({'error': f'Falha ao ler DXF: {last_error} | Latin1: {str(e3)}'}), 400
 
         msp = doc.modelspace()
 
