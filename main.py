@@ -19,35 +19,37 @@ def calcular_lote():
         if file.filename == '':
             return jsonify({'error': 'Nome do arquivo vazio'}), 400
 
-        file_content = file.read()
+        # Utiliza o stream binário nativo do Flask/Werkzeug
+        file_stream = file.stream
         
         doc = None
         erro_detalhado = ""
 
-        # Tentativa 1: Leitura direta se forem bytes válidos
+        # Tentativa 1: Ler diretamente os bytes do stream do ficheiro
         try:
-            doc = ezdxf.read(io.BytesIO(file_content))
+            file_stream.seek(0)
+            doc = ezdxf.read(file_stream)
         except Exception as e1:
-            erro_detalhado += f" [B1: {str(e1)}] "
+            erro_detalhado += f" [Stream: {str(e1)}] "
 
-        # Tentativa 2: Decodificação Base64 (caso o Bubble envie o ficheiro codificado)
+        # Tentativa 2: Ler com file.read() tradicional encapsulado em BytesIO
         if doc is None:
             try:
-                decoded_bytes = base64.b64decode(file_content)
-                doc = ezdxf.read(io.BytesIO(decoded_bytes))
+                file.stream.seek(0)
+                raw_bytes = file.read()
+                doc = ezdxf.read(io.BytesIO(raw_bytes))
             except Exception as e2:
-                erro_detalhado += f" [B64: {str(e2)}] "
+                erro_detalhado += f" [BytesIO: {str(e2)}] "
 
-        # Tentativa 3: Conversão para texto limpo (UTF-8 / Latin-1)
+        # Tentativa 3: Caso venha como texto puro/string
         if doc is None:
-            for encoding in ['utf-8', 'latin-1', 'cp1252']:
-                try:
-                    text_content = file_content.decode(encoding, errors='ignore')
-                    # Limpa eventuais quebras de linha corrompidas pelo transporte HTTP
-                    doc = ezdxf.read(io.StringIO(text_content))
-                    break
-                except Exception as e3:
-                    erro_detalhado += f" [{encoding}: {str(e3)}] "
+            try:
+                file.stream.seek(0)
+                raw_bytes = file.read()
+                text_content = raw_bytes.decode('utf-8', errors='ignore')
+                doc = ezdxf.read(io.StringIO(text_content))
+            except Exception as e3:
+                erro_detalhado += f" [StringIO: {str(e3)}] "
 
         if doc is None:
             return jsonify({'error': f'Impossível ler DXF. Detalhes: {erro_detalhado}'}), 400
