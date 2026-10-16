@@ -19,14 +19,22 @@ def calcular_lote():
         if file.filename == '':
             return jsonify({'error': 'Nome do arquivo vazio'}), 400
 
-        # Lê o conteúdo do arquivo em formato binário (bytes)
-        dxf_bytes = file.read()
-        
-        # Garante que passamos bytes reais para o ezdxf através de io.BytesIO
-        doc = ezdxf.read(io.BytesIO(dxf_bytes))
+        # Lê o conteúdo de forma segura, aceitando bytes ou string
+        file_content = file.read()
+        if isinstance(file_content, str):
+            file_content = file_content.encode('utf-8')
+
+        # Tenta carregar o DXF usando ezdxf de forma segura
+        try:
+            doc = ezdxf.read(io.BytesIO(file_content))
+        except Exception:
+            # Fallback caso venha em formato de texto/string pura
+            text_content = file_content.decode('utf-8', errors='ignore')
+            doc = ezdxf.readfile(io.StringIO(text_content))
+
         msp = doc.modelspace()
 
-        # Configuração para renderizar o SVG da geometria planificada
+        # Renderiza a geometria planificada para SVG usando matplotlib
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_axes([0, 0, 1, 1])
         ctx = RenderContext(doc)
