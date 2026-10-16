@@ -19,18 +19,15 @@ def calcular_lote():
         if file.filename == '':
             return jsonify({'error': 'Nome do arquivo vazio'}), 400
 
-        # Lê o conteúdo de forma segura, aceitando bytes ou string
         file_content = file.read()
-        if isinstance(file_content, str):
-            file_content = file_content.encode('utf-8')
-
-        # Tenta carregar o DXF usando ezdxf de forma segura
+        
+        # Tenta ler como bytes (padrão)
         try:
             doc = ezdxf.read(io.BytesIO(file_content))
         except Exception:
-            # Fallback caso venha em formato de texto/string pura
+            # Se falhar, converte para texto e lê com io.StringIO usando ezdxf.read()
             text_content = file_content.decode('utf-8', errors='ignore')
-            doc = ezdxf.readfile(io.StringIO(text_content))
+            doc = ezdxf.read(io.StringIO(text_content))
 
         msp = doc.modelspace()
 
