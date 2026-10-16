@@ -1,6 +1,7 @@
 import os
 import io
 import tempfile
+import math
 from flask import Flask, request, jsonify
 import ezdxf
 from ezdxf.addons.drawing import RenderContext, Frontend
@@ -27,7 +28,7 @@ def calcular_lote():
         doc = ezdxf.readfile(temp_path)
         msp = doc.modelspace()
 
-        # Variáveis de cálculo
+        # Inicialização correta de todas as variáveis
         comprimento_vermelho = 0.0
         comprimento_outras = 0.0
         comprimento_geral = 0.0
@@ -42,6 +43,7 @@ def calcular_lote():
             if x > max_x: max_x = x
             if y > max_y: max_y = y
 
+        contornos_fechados_count = 0
         arcos_fechados_count = 0
         circulos_count = 0
         linhas_count = 0
@@ -49,7 +51,7 @@ def calcular_lote():
 
         for entity in msp:
             etype = entity.dxftype()
-            color = entity.dxf.color if hasattr(entity.dxf, 'color') else 7 # 7 ou ByLayer por omissão geralmente branco/padrão
+            color = entity.dxf.color if hasattr(entity.dxf, 'color') else 7
             
             comprimento_entidade = 0.0
 
@@ -68,11 +70,10 @@ def calcular_lote():
                 except:
                     comprimento_entidade = 0.0
                 
-                # Extrair pontos para caixa delimitadora
                 for point in entity.get_points():
                     atualizar_limites(point[0], point[1])
                 
-                if entity.closed:
+                if hasattr(entity, 'closed') and entity.closed:
                     contornos_fechados_count += 1
 
             elif etype == 'ARC':
@@ -80,7 +81,6 @@ def calcular_lote():
                 radius = entity.dxf.radius
                 start_angle = entity.dxf.start_angle
                 end_angle = entity.dxf.end_angle
-                import math
                 sweep = abs(end_angle - start_angle)
                 if sweep > 360: sweep = 360
                 comprimento_entidade = 2 * math.pi * radius * (sweep / 360.0)
@@ -90,12 +90,11 @@ def calcular_lote():
             elif etype == 'CIRCLE':
                 circulos_count += 1
                 radius = entity.dxf.radius
-                import math
                 comprimento_entidade = 2 * math.pi * radius
                 atualizar_limites(entity.dxf.center.x - radius, entity.dxf.center.y - radius)
                 atualizar_limites(entity.dxf.center.x + radius, entity.dxf.center.y + radius)
 
-            # Acumulação por cor (Cor 1 = Vermelho no AutoCAD)
+            # Separação por cor (Cor 1 = Vermelho)
             if color == 1:
                 comprimento_vermelho += comprimento_entidade
             else:
@@ -103,7 +102,6 @@ def calcular_lote():
 
             comprimento_geral += comprimento_entidade
 
-        # Cálculo de Largura e Altura reais com base na caixa delimitadora
         if min_x != float('inf'):
             largura = max_x - min_x
             altura = max_y - min_y
@@ -111,7 +109,7 @@ def calcular_lote():
             largura = 0.0
             altura = 0.0
 
-        # Renderização do SVG via Matplotlib
+        # Renderização do SVG
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_axes([0, 0, 1, 1])
         ctx = RenderContext(doc)
@@ -126,7 +124,6 @@ def calcular_lote():
         svg_io.seek(0)
         dxf_svg_content = svg_io.getvalue().decode('utf-8')
 
-        # Resposta JSON estruturada com todas as métricas detalhadas
         response_data = {
             "dxf_svg": dxf_svg_content,
             "nome_arquivo": file.filename,
