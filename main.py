@@ -21,14 +21,20 @@ def calcular_lote():
         if file.filename == '':
             return jsonify({'error': 'Nome do arquivo vazio'}), 400
 
-        # Cria um ficheiro temporário seguro no disco do servidor para processar o DXF
+        # Grava num ficheiro temporário para leitura 100% segura pelo ezdxf
         with tempfile.NamedTemporaryFile(delete=False, suffix='.dxf') as temp_file:
             file.save(temp_file.name)
             temp_path = temp_file.name
 
-        # Lê o DXF utilizando o método oficial ezdxf.readfile() a partir do caminho físico
         doc = ezdxf.readfile(temp_path)
         msp = doc.modelspace()
+
+        # Análise básica de entidades para métricas (perímetro, contagem, etc.)
+        total_entidades = len(msp)
+        linhas = len(msp.query('LINE'))
+        arcos = len(msp.query('ARC'))
+        circulos = len(msp.query('CIRCLE'))
+        polilinhas = len(msp.query('LWPOLYLINE'))
 
         # Renderização da vista planificada para SVG utilizando o matplotlib
         fig = plt.figure(figsize=(10, 10))
@@ -45,10 +51,17 @@ def calcular_lote():
         svg_io.seek(0)
         dxf_svg_content = svg_io.getvalue().decode('utf-8')
 
+        # Resposta completa contendo o SVG e todas as propriedades operacionais
         response_data = {
             'dxf_svg': dxf_svg_content,
+            'nome_arquivo': file.filename,
+            'total_entidades': total_entidades,
+            'linhas': linhas,
+            'arcos': arcos,
+            'circulos': circulos,
+            'polilinhas': polilinhas,
             'status': 'sucesso',
-            'mensagem': 'DXF processado e planificado com sucesso'
+            'mensagem': 'DXF processado, planificado e calculado com sucesso'
         }
 
         return jsonify(response_data), 200
@@ -57,7 +70,6 @@ def calcular_lote():
         return jsonify({'error': str(e)}), 500
 
     finally:
-        # Limpa o ficheiro temporário do disco após o uso
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
