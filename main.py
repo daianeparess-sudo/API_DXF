@@ -1,5 +1,6 @@
 import os
 import io
+import tempfile
 import base64
 from flask import Flask, request, jsonify
 import ezdxf
@@ -11,6 +12,7 @@ app = Flask(__name__)
 
 @app.route('/calcular-lote', methods=['POST'])
 def calcular_lote():
+    temp_path = None
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'Nenhum arquivo enviado no parâmetro "file"'}), 400
@@ -19,41 +21,13 @@ def calcular_lote():
         if file.filename == '':
             return jsonify({'error': 'Nome do arquivo vazio'}), 400
 
-        # Utiliza o stream binário nativo do Flask/Werkzeug
-        file_stream = file.stream
-        
-        doc = None
-        erro_detalhado = ""
+        # Cria um ficheiro temporário seguro no disco do servidor para processar o DXF
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.dxf') as temp_file:
+            file.save(temp_file.name)
+            temp_path = temp_file.name
 
-        # Tentativa 1: Ler diretamente os bytes do stream do ficheiro
-        try:
-            file_stream.seek(0)
-            doc = ezdxf.read(file_stream)
-        except Exception as e1:
-            erro_detalhado += f" [Stream: {str(e1)}] "
-
-        # Tentativa 2: Ler com file.read() tradicional encapsulado em BytesIO
-        if doc is None:
-            try:
-                file.stream.seek(0)
-                raw_bytes = file.read()
-                doc = ezdxf.read(io.BytesIO(raw_bytes))
-            except Exception as e2:
-                erro_detalhado += f" [BytesIO: {str(e2)}] "
-
-        # Tentativa 3: Caso venha como texto puro/string
-        if doc is None:
-            try:
-                file.stream.seek(0)
-                raw_bytes = file.read()
-                text_content = raw_bytes.decode('utf-8', errors='ignore')
-                doc = ezdxf.read(io.StringIO(text_content))
-            except Exception as e3:
-                erro_detalhado += f" [StringIO: {str(e3)}] "
-
-        if doc is None:
-            return jsonify({'error': f'Impossível ler DXF. Detalhes: {erro_detalhado}'}), 400
-
+        # Lê o DXF utilizando o método oficial ezdxf.readfile() a partir do caminho físico
+        doc = ezdxf.readfile(temp_path)
         msp = doc.modelspace()
 
         # Renderização da vista planificada para SVG utilizando o matplotlib
@@ -81,6 +55,14 @@ def calcular_lote():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+    finally:
+        # Limpa o ficheiro temporário do disco após o uso
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
