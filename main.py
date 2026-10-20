@@ -28,7 +28,6 @@ def calcular_lote():
         doc = ezdxf.readfile(temp_path)
         msp = doc.modelspace()
 
-        # Inicialização correta de todas as variáveis
         comprimento_vermelho = 0.0
         comprimento_outras = 0.0
         comprimento_geral = 0.0
@@ -44,7 +43,7 @@ def calcular_lote():
             if y > max_y: max_y = y
 
         contornos_fechados_count = 0
-        arcos_fechados_count = 0
+        arcos_count = 0
         circulos_count = 0
         linhas_count = 0
         polilinhas_count = 0
@@ -52,7 +51,6 @@ def calcular_lote():
         for entity in msp:
             etype = entity.dxftype()
             color = entity.dxf.color if hasattr(entity.dxf, 'color') else 7
-            
             comprimento_entidade = 0.0
 
             if etype == 'LINE':
@@ -73,11 +71,26 @@ def calcular_lote():
                 for point in entity.get_points():
                     atualizar_limites(point[0], point[1])
                 
+                # Verifica se a polilinha está fechada (flag closed == True ou ponto inicial == final)
+                is_closed = False
                 if hasattr(entity, 'closed') and entity.closed:
+                    is_closed = True
+                else:
+                    try:
+                        pts = list(entity.get_points())
+                        if len(pts) > 2:
+                            dx = pts[0][0] - pts[-1][0]
+                            dy = pts[0][1] - pts[-1][1]
+                            if (dx*dx + dy*dy) < 1e-4:
+                                is_closed = True
+                    except:
+                        pass
+                
+                if is_closed:
                     contornos_fechados_count += 1
 
             elif etype == 'ARC':
-                arcos_fechados_count += 1
+                arcos_count += 1
                 radius = entity.dxf.radius
                 start_angle = entity.dxf.start_angle
                 end_angle = entity.dxf.end_angle
@@ -93,6 +106,8 @@ def calcular_lote():
                 comprimento_entidade = 2 * math.pi * radius
                 atualizar_limites(entity.dxf.center.x - radius, entity.dxf.center.y - radius)
                 atualizar_limites(entity.dxf.center.x + radius, entity.dxf.center.y + radius)
+                # Círculos são sempre contornos fechados (furos/piercings)
+                contornos_fechados_count += 1
 
             # Separação por cor (Cor 1 = Vermelho)
             if color == 1:
@@ -108,6 +123,9 @@ def calcular_lote():
         else:
             largura = 0.0
             altura = 0.0
+
+        # Assegura que o número mínimo de contornos fechados é pelo menos 1 (o contorno externo)
+        total_contornos = max(contornos_fechados_count, 1)
 
         # Renderização do SVG
         fig = plt.figure(figsize=(10, 10))
@@ -132,10 +150,10 @@ def calcular_lote():
             "altura": round(altura, 2),
             "comprimento_linhas_vermelhas": round(comprimento_vermelho, 2),
             "comprimento_linhas_outras_cores": round(comprimento_outras, 2),
-            "contornos_fechados": max(contornos_fechados_count, 1),
+            "contornos_fechados": total_contornos,
             "total_entidades": len(msp),
             "linhas": linhas_count,
-            "arcos": arcos_fechados_count,
+            "arcos": arcos_count,
             "circulos": circulos_count,
             "polilinhas": polilinhas_count,
             "status": "sucesso",
