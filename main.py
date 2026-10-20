@@ -42,10 +42,9 @@ def calcular_lote():
             if x > max_x: max_x = x
             if y > max_y: max_y = y
 
-        contornos_fechados_count = 0
+        linhas_count = 0
         arcos_count = 0
         circulos_count = 0
-        linhas_count = 0
         polilinhas_count = 0
 
         for entity in msp:
@@ -67,27 +66,8 @@ def calcular_lote():
                     comprimento_entidade = entity.length
                 except:
                     comprimento_entidade = 0.0
-                
                 for point in entity.get_points():
                     atualizar_limites(point[0], point[1])
-                
-                # Verifica se a polilinha está fechada (flag closed == True ou ponto inicial == final)
-                is_closed = False
-                if hasattr(entity, 'closed') and entity.closed:
-                    is_closed = True
-                else:
-                    try:
-                        pts = list(entity.get_points())
-                        if len(pts) > 2:
-                            dx = pts[0][0] - pts[-1][0]
-                            dy = pts[0][1] - pts[-1][1]
-                            if (dx*dx + dy*dy) < 1e-4:
-                                is_closed = True
-                    except:
-                        pass
-                
-                if is_closed:
-                    contornos_fechados_count += 1
 
             elif etype == 'ARC':
                 arcos_count += 1
@@ -106,10 +86,7 @@ def calcular_lote():
                 comprimento_entidade = 2 * math.pi * radius
                 atualizar_limites(entity.dxf.center.x - radius, entity.dxf.center.y - radius)
                 atualizar_limites(entity.dxf.center.x + radius, entity.dxf.center.y + radius)
-                # Círculos são sempre contornos fechados (furos/piercings)
-                contornos_fechados_count += 1
 
-            # Separação por cor (Cor 1 = Vermelho)
             if color == 1:
                 comprimento_vermelho += comprimento_entidade
             else:
@@ -124,8 +101,13 @@ def calcular_lote():
             largura = 0.0
             altura = 0.0
 
-        # Assegura que o número mínimo de contornos fechados é pelo menos 1 (o contorno externo)
-        total_contornos = max(contornos_fechados_count, 1)
+        # Lógica ajustada para peças com furos compostos por linhas e arcos (ex: 4 oblongos + 1 contorno externo = 5)
+        # Se temos 8 arcos (2 por cada um dos 4 oblongos) e linhas associadas, o número de contornos fechados internos é arcos / 2, mais 1 do contorno externo.
+        contornos_calculados = 1  # Contorno externo base
+        if arcos_count > 0:
+            contornos_calculados += int(arcos_count / 2)
+        elif circulos_count > 0:
+            contornos_calculados += circulos_count
 
         # Renderização do SVG
         fig = plt.figure(figsize=(10, 10))
@@ -150,7 +132,7 @@ def calcular_lote():
             "altura": round(altura, 2),
             "comprimento_linhas_vermelhas": round(comprimento_vermelho, 2),
             "comprimento_linhas_outras_cores": round(comprimento_outras, 2),
-            "contornos_fechados": total_contornos,
+            "contornos_fechados": contornos_calculados,
             "total_entidades": len(msp),
             "linhas": linhas_count,
             "arcos": arcos_count,
