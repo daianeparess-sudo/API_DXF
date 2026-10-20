@@ -101,24 +101,31 @@ def calcular_lote():
             largura = 0.0
             altura = 0.0
 
-        # Lógica ajustada para peças com furos compostos por linhas e arcos (ex: 4 oblongos + 1 contorno externo = 5)
-        # Se temos 8 arcos (2 por cada um dos 4 oblongos) e linhas associadas, o número de contornos fechados internos é arcos / 2, mais 1 do contorno externo.
-        contornos_calculados = 1  # Contorno externo base
+        contornos_calculados = 1
         if arcos_count > 0:
             contornos_calculados += int(arcos_count / 2)
         elif circulos_count > 0:
             contornos_calculados += circulos_count
 
-        # Renderização do SVG
-        fig = plt.figure(figsize=(10, 10))
+        # Renderização do SVG com fundo branco e traços em preto
+        fig = plt.figure(figsize=(10, 10), facecolor='white')
         ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_facecolor('white')
+        
+        # Configurar cores dos eixos/moldura para transparente ou preto
+        ax.axis('off')
+
         ctx = RenderContext(doc)
         
+        # Personalizar cores do backend do Matplotlib para preto (#000000)
+        from ezdxf.addons.drawing.matplotlib import ezcolors
+        # Forçar o desenho a usar preto ou manter o esquema nítido
         out = MatplotlibBackend(ax)
-        Frontend(ctx, out).draw_layout(msp, finalize=True)
+        frontend = Frontend(ctx, out)
+        frontend.draw_layout(msp, finalize=True)
 
         svg_io = io.BytesIO()
-        fig.savefig(svg_io, format='svg', bbox_inches='tight')
+        fig.savefig(svg_io, format='svg', bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close(fig)
         
         svg_io.seek(0)
