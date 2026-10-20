@@ -7,7 +7,6 @@ import ezdxf
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 import matplotlib.pyplot as plt
-from ezdxf.addons.drawing.properties import LayoutProperties
 
 app = Flask(__name__)
 
@@ -108,33 +107,24 @@ def calcular_lote():
         elif circulos_count > 0:
             contornos_calculados += circulos_count
 
-        # Renderização do SVG com fundo branco e forçando cor preta para os traços
+        # Renderização do SVG limpo com fundo branco
         fig = plt.figure(figsize=(10, 10), facecolor='white')
         ax = fig.add_axes([0, 0, 1, 1])
         ax.set_facecolor('white')
         ax.axis('off')
 
         ctx = RenderContext(doc)
-        # Configurar cores padrão da camada para preto forte
-        ctx.set_current_layout_properties(LayoutProperties(background_color='#ffffff'))
-        
         out = MatplotlibBackend(ax)
-        frontend = Frontend(ctx, out)
-        
-        # Sobrescrever a cor de exibição de todas as entidades para preto (#000000)
-        class BlackFrontend(Frontend):
-            def get_entity_color(self, entity, corrected_color=True):
-                return '#000000'
+        Frontend(ctx, out).draw_layout(msp, finalize=True)
 
-        # Usar o frontend com traços pretos
-        out_backend = MatplotlibBackend(ax)
-        Frontend(ctx, out_backend).draw_layout(msp, finalize=True)
-        
-        # Forçar linhas do plot para preto caso tenham ficado cinzentas
+        # Assegurar que todas as linhas e coleções gráficas fiquem bem visíveis (em tom escuro)
         for line in ax.get_lines():
-            line.set_color('#000000')
+            line.set_color('#111111')
+            line.set_linewidth(1.2)
+        for patch in ax.patches:
+            patch.set_edgecolor('#111111')
         for coll in ax.collections:
-            coll.set_color('#000000')
+            coll.set_color('#111111')
 
         svg_io = io.BytesIO()
         fig.savefig(svg_io, format='svg', bbox_inches='tight', facecolor='white', edgecolor='none')
